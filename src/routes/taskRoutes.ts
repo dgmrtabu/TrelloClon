@@ -38,4 +38,28 @@ router.patch(
   TaskController.updateStatus
 );
 
+router.patch(
+  '/:id',
+  [
+    idParam,
+    body().custom((_value, { req }) => {
+      if (!req.body.title && !req.body.description) {
+        throw new Error('Debe proporcionar titulo o descripcion');
+      }
+      return true;
+    }),
+    body('title').optional().isString().trim().isLength({ min: 3 }).withMessage('El titulo debe tener al menos 3 caracteres'),
+    body('description').optional().isString().trim().isLength({ min: 5 }).withMessage('La descripcion debe tener al menos 5 caracteres')
+  ],
+  validateRequest,
+  TaskController.updateTask
+);
+
+router.delete(
+  '/:id',
+  [idParam],
+  validateRequest,
+  TaskController.deleteTask
+);
+
 export default router;
