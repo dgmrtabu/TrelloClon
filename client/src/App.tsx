@@ -1,5 +1,5 @@
-﻿import { useEffect, useMemo, useState } from 'react';
-import type { ChangeEvent, FormEvent } from 'react';
+﻿import type { FormEvent, KeyboardEvent } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import './App.css';
 import { apiRequest } from './lib/api';
@@ -20,36 +20,24 @@ interface Banner {
   message: string;
 }
 
-const STATUS_COLUMNS: Array<{
-  id: TaskStatus;
-  label: string;
-  helper: string;
-}> = [
-  { id: 'pending', label: 'Pendiente', helper: 'Ideas y trabajo por iniciar' },
-  { id: 'in_progress', label: 'En progreso', helper: 'Tareas activas' },
-  { id: 'completed', label: 'Completada', helper: 'Listas para entregar' }
-];
+const MIN_TITLE_LENGTH = 3;
+const MIN_DESCRIPTION_LENGTH = 5;
 
-const INITIAL_FORM = { title: '', description: '' };
+const normalizeText = (value: string): string => value.replace(/\s+/g, ' ').trim();
 
 function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [banner, setBanner] = useState<Banner | null>(null);
-  const [form, setForm] = useState(INITIAL_FORM);
-  const [isCreating, setIsCreating] = useState(false);
-  const [activeTask, setActiveTask] = useState<number | null>(null);
+  const [newTask, setNewTask] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [statusChangingId, setStatusChangingId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingValue, setEditingValue] = useState('');
+  const [savingEditId, setSavingEditId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
-  const groupedTasks = useMemo(() => {
-    return STATUS_COLUMNS.reduce((acc, column) => {
-      acc[column.id] = tasks.filter((task) => task.status === column.id);
-      return acc;
-    }, {} as Record<TaskStatus, Task[]>);
-  }, [tasks]);
-
-  const focusInput = (name: keyof typeof INITIAL_FORM) => (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setForm((prev) => ({ ...prev, [name]: event.target.value }));
-  };
+  const pendingTasks = useMemo(() => tasks.filter((task) => task.status !== 'completed').length, [tasks]);
 
   const showBanner = (type: Banner['type'], message: string) => {
     setBanner({ type, message });
@@ -68,157 +56,252 @@ function App() {
   };
 
   useEffect(() => {
-    loadTasks();
+    void loadTasks();
   }, []);
 
   const handleCreateTask = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!form.title.trim() || !form.description.trim()) {
-      showBanner('error', 'Completa titulo y descripcion');
+    const cleaned = normalizeText(newTask);
+    if (cleaned.length < MIN_DESCRIPTION_LENGTH) {
+      showBanner('error', 'Escribe al menos 5 caracteres para crear una tarea');
       return;
     }
 
-    setIsCreating(true);
+    setCreating(true);
     try {
       const response = await apiRequest<{ data: Task }>('/tasks', {
         method: 'POST',
         body: JSON.stringify({
-          title: form.title.trim(),
-          description: form.description.trim()
+          title: cleaned,
+          description: cleaned
         })
       });
 
       setTasks((prev) => [response.data, ...prev]);
-      setForm(INITIAL_FORM);
+      setNewTask('');
       showBanner('success', 'Tarea creada');
     } catch (error) {
       showBanner('error', error instanceof Error ? error.message : 'No fue posible crear la tarea');
     } finally {
-      setIsCreating(false);
+      setCreating(false);
     }
   };
 
-  const handleStatusChange = async (taskId: number, nextStatus: TaskStatus) => {
-    setActiveTask(taskId);
+  const toggleTaskStatus = async (task: Task) => {
+    const nextStatus: TaskStatus = task.status === 'completed' ? 'pending' : 'completed';
+    setStatusChangingId(task.id);
     try {
-      const response = await apiRequest<{ data: Task }>(`/tasks/${taskId}/status`, {
+      const response = await apiRequest<{ data: Task }>(`/tasks/${task.id}/status`, {
         method: 'PATCH',
         body: JSON.stringify({ status: nextStatus })
       });
-
-      setTasks((prev) => prev.map((task) => (task.id === taskId ? response.data : task)));
+      setTasks((prev) => prev.map((item) => (item.id === task.id ? response.data : item)));
       showBanner('success', 'Estado actualizado');
     } catch (error) {
-      showBanner('error', error instanceof Error ? error.message : 'No fue posible actualizar el estado');
+      showBanner('error', error instanceof Error ? error.message : 'No fue posible actualizar la tarea');
     } finally {
-      setActiveTask(null);
+      setStatusChangingId(null);
+    }
+  };
+
+  const startEditing = (task: Task) => {
+    setEditingId(task.id);
+    setEditingValue(task.title);
+  };
+
+  const cancelEditing = () => {
+    setEditingId(null);
+    setEditingValue('');
+  };
+
+  const saveEditingTask = async () => {
+    if (editingId === null) {
+      return;
+    }
+
+    const trimmed = normalizeText(editingValue);
+    if (trimmed.length < MIN_TITLE_LENGTH) {
+      showBanner('error', 'El titulo debe tener al menos 3 caracteres');
+      return;
+    }
+
+    if (trimmed.length < MIN_DESCRIPTION_LENGTH) {
+      showBanner('error', 'El texto debe tener al menos 5 caracteres');
+      return;
+    }
+
+    const currentTask = tasks.find((task) => task.id === editingId);
+    if (!currentTask) {
+      cancelEditing();
+      return;
+    }
+
+    if (currentTask.title === trimmed && currentTask.description === trimmed) {
+      cancelEditing();
+      return;
+    }
+
+    setSavingEditId(editingId);
+    try {
+      const response = await apiRequest<{ data: Task }>(`/tasks/${editingId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ title: trimmed, description: trimmed })
+      });
+      setTasks((prev) => prev.map((task) => (task.id === editingId ? response.data : task)));
+      showBanner('success', 'Tarea actualizada');
+      cancelEditing();
+    } catch (error) {
+      showBanner('error', error instanceof Error ? error.message : 'No fue posible editar la tarea');
+    } finally {
+      setSavingEditId(null);
+    }
+  };
+
+  const handleEditBlur = () => {
+    if (editingId !== null && savingEditId === null) {
+      void saveEditingTask();
+    }
+  };
+
+  const handleEditKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      void saveEditingTask();
+    }
+
+    if (event.key === 'Escape') {
+      cancelEditing();
+    }
+  };
+
+  const deleteTask = async (taskId: number) => {
+    const confirmDelete = window.confirm('¿Eliminar esta tarea?');
+    if (!confirmDelete) {
+      return;
+    }
+
+    setDeletingId(taskId);
+    try {
+      await apiRequest(`/tasks/${taskId}`, { method: 'DELETE' });
+      setTasks((prev) => prev.filter((task) => task.id !== taskId));
+      showBanner('success', 'Tarea eliminada');
+    } catch (error) {
+      showBanner('error', error instanceof Error ? error.message : 'No fue posible eliminar la tarea');
+    } finally {
+      setDeletingId(null);
     }
   };
 
   const hasTasks = tasks.length > 0;
 
   return (
-    <div className="app-shell">
-      <header className="app-header">
+    <div className="task-app">
+      <header className="task-header">
         <div>
           <p className="eyebrow">DevPro Bolivia</p>
-          <h1>Tablero de tareas</h1>
-          <p className="subtitle">Clone ligero de Trello conectado al backend Express.</p>
+          <h1>Lista de tareas</h1>
+          <p className="subtitle">Agrega, marca como completadas, edita o elimina tus pendientes.</p>
         </div>
-        <div className="header-actions">
-          <button className="outline" onClick={loadTasks} disabled={loading}>
-            {loading ? 'Actualizando...' : 'Refrescar'}
-          </button>
+        <div className="counter-grid" aria-live="polite">
+          <div className="counter-card">
+            <p className="counter-label">N° Tareas</p>
+            <p className="counter-value">{tasks.length}</p>
+          </div>
+          <div className="counter-card">
+            <p className="counter-label">Pendientes</p>
+            <p className="counter-value">{pendingTasks}</p>
+          </div>
         </div>
       </header>
 
       {banner && (
         <div className={`banner banner-${banner.type}`}>
           <span>{banner.message}</span>
-          <button onClick={() => setBanner(null)} aria-label="Cerrar alerta">
-            &times;
+          <button type="button" onClick={() => setBanner(null)} aria-label="Cerrar alerta">
+            ×
           </button>
         </div>
       )}
 
-      <section className="create-panel">
+      <section className="task-form">
         <form onSubmit={handleCreateTask}>
-          <div className="form-row">
-            <label>
-              Titulo
-              <input
-                type="text"
-                placeholder="Ej. Configurar CI"
-                value={form.title}
-                onChange={focusInput('title')}
-                maxLength={120}
-              />
-            </label>
-            <label>
-              Descripcion
-              <textarea
-                placeholder="Detalle la tarea para el equipo"
-                value={form.description}
-                onChange={focusInput('description')}
-                maxLength={500}
-                rows={3}
-              />
-            </label>
-          </div>
-          <div className="form-actions">
-            <button type="submit" disabled={isCreating}>
-              {isCreating ? 'Creando...' : 'Crear tarea'}
-            </button>
-          </div>
+          <label className="sr-only" htmlFor="new-task">
+            ¿Qué hay que hacer?
+          </label>
+          <input
+            id="new-task"
+            type="text"
+            placeholder="¿Qué hay que hacer?"
+            value={newTask}
+            onChange={(event) => setNewTask(event.target.value)}
+            maxLength={200}
+            disabled={creating}
+          />
+          <button type="submit" disabled={creating}>
+            {creating ? 'Agregando…' : 'Agregar'}
+          </button>
         </form>
       </section>
 
-      <section className="board-grid">
-        {STATUS_COLUMNS.map((column) => {
-          const columnTasks = groupedTasks[column.id] ?? [];
-          return (
-            <article key={column.id} className="board-column">
-              <header>
-                <div>
-                  <p className="eyebrow">{column.label}</p>
-                  <h2>{columnTasks.length} tareas</h2>
-                </div>
-                <p className="helper">{column.helper}</p>
-              </header>
-
-              {loading && !hasTasks ? (
-                <p className="empty">Cargando tareas...</p>
-              ) : columnTasks.length === 0 ? (
-                <p className="empty">Nada por aqui</p>
-              ) : (
-                <ul>
-                  {columnTasks.map((task) => (
-                    <li key={task.id} className="task-card">
-                      <div className="task-meta">
-                        <p className="task-title">{task.title}</p>
-                        <p className="task-description">{task.description}</p>
-                      </div>
-                      <div className="task-footer">
-                        <small>#{task.id}</small>
-                        <select
-                          value={task.status}
-                          onChange={(event) => handleStatusChange(task.id, event.target.value as TaskStatus)}
-                          disabled={activeTask === task.id}
-                        >
-                          {STATUS_COLUMNS.map((option) => (
-                            <option key={option.id} value={option.id}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </article>
-          );
-        })}
+      <section className="task-list">
+        {loading ? (
+          <p className="empty-state">Cargando tareas…</p>
+        ) : !hasTasks ? (
+          <p className="empty-state">Sin tareas. ¡Agrega la primera!</p>
+        ) : (
+          <ul>
+            {tasks.map((task) => {
+              const isCompleted = task.status === 'completed';
+              const isEditing = editingId === task.id;
+              return (
+                <li key={task.id} className={`task-item ${isCompleted ? 'is-done' : ''}`}>
+                  <button
+                    type="button"
+                    className={`status-toggle ${isCompleted ? 'is-completed' : ''}`}
+                    onClick={() => toggleTaskStatus(task)}
+                    disabled={statusChangingId === task.id || savingEditId !== null}
+                    aria-label={`Cambiar estado de ${task.title}`}
+                  >
+                    <span />
+                  </button>
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      value={editingValue}
+                      onChange={(event) => setEditingValue(event.target.value)}
+                      onBlur={handleEditBlur}
+                      onKeyDown={handleEditKeyDown}
+                      disabled={savingEditId === task.id}
+                      autoFocus
+                    />
+                  ) : (
+                    <p className="task-text">{task.title}</p>
+                  )}
+                  <div className="task-actions">
+                    <button
+                      type="button"
+                      className="icon-button"
+                      onClick={() => startEditing(task)}
+                      disabled={isEditing || deletingId === task.id}
+                      aria-label={`Editar tarea ${task.title}`}
+                    >
+                      ✏️
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-button"
+                      onClick={() => deleteTask(task.id)}
+                      disabled={deletingId === task.id || isEditing}
+                      aria-label={`Eliminar tarea ${task.title}`}
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </section>
     </div>
   );
