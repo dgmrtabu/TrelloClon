@@ -52,4 +52,24 @@ export class TaskController {
       next(error);
     }
   };
+
+  static updateTask = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const id = parseId(req.params.id);
+      const task = await service.updateTaskDetails(id, req.body);
+      res.json({ data: task });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  static deleteTask = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const id = parseId(req.params.id);
+      await service.deleteTask(id);
+      res.status(204).send();
+    } catch (error) {
+      next(error);
+    }
+  };
 }

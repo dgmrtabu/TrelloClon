@@ -53,7 +53,8 @@ export class TaskRepository {
       id
     );
 
-    if (result.changes === 0) {
+    const changes = result.changes ?? 0;
+    if (changes === 0) {
       return null;
     }
 
@@ -62,5 +63,46 @@ export class TaskRepository {
       return null;
     }
     return mapRowToTask(updated);
+  }
+
+  async updateTask(id: number, updates: Partial<CreateTaskInput>): Promise<Task | null> {
+    const db = await getDb();
+
+    const fields: string[] = [];
+    const params: Array<string | number> = [];
+
+    if (typeof updates.title === 'string') {
+      fields.push('title = ?');
+      params.push(updates.title);
+    }
+
+    if (typeof updates.description === 'string') {
+      fields.push('description = ?');
+      params.push(updates.description);
+    }
+
+    if (fields.length === 0) {
+      return this.findById(id);
+    }
+
+    const updatedAt = new Date().toISOString();
+    fields.push('updated_at = ?');
+    params.push(updatedAt);
+    params.push(id);
+
+    const result = await db.run(`UPDATE tasks SET ${fields.join(', ')} WHERE id = ?;`, ...params);
+    const changes = result.changes ?? 0;
+    if (changes === 0) {
+      return null;
+    }
+
+    const updated = await db.get(`SELECT * FROM tasks WHERE id = ?;`, id);
+    return updated ? mapRowToTask(updated) : null;
+  }
+
+  async deleteTask(id: number): Promise<boolean> {
+    const db = await getDb();
+    const result = await db.run(`DELETE FROM tasks WHERE id = ?;`, id);
+    return (result.changes ?? 0) > 0;
   }
 }

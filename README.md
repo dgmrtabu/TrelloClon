@@ -1,6 +1,6 @@
 ﻿# TrelloClon DevPro Bolivia
 
-Gestor de tareas estilo Trello construido con TypeScript. Incluye backend Express + SQLite y un frontend React (Vite) que consume las APIs REST para crear, listar y mover tareas entre columnas.
+Gestor de tareas estilo Trello construido con TypeScript. Incluye backend Express + SQLite y un frontend React (Vite) que consume las APIs REST para crear, listar, editar, completar y eliminar tareas con contadores dinámicos.
 
 ## Caracteristicas clave
 - **Stack TypeScript**: backend y frontend escritos en TS moderno.
@@ -8,15 +8,15 @@ Gestor de tareas estilo Trello construido con TypeScript. Incluye backend Expres
 - **API REST**: rutas versionadas bajo `/api/v1/tasks` para CRUD esencial.
 - **Arquitectura**: capas separadas (routing -> controller -> service -> repository) respetando SRP.
 - **Seguridad**: middleware `authPlaceholder` y validaciones de entrada (`express-validator`).
-- **Frontend React**: tablero Kanban ligero con columnas Pendiente, En progreso y Completada, formulario de alta y selector de estados.
+- **Frontend React**: lista interactiva con contadores, formulario rápido, toggles de estado, edición inline y acciones de eliminación.
 
 ## Monorepo
 ```
 src/                      # Backend Express
 client/                   # Frontend Vite + React
   src/lib/api.ts          # Cliente HTTP contra el backend
-  src/App.tsx             # Tablero y UI principal
-  src/App.css             # Estilos del tablero
+  src/App.tsx             # UI principal estilo lista tachable
+  src/App.css             # Estilos de la lista y layout
 data/                     # SQLite (se crea en runtime)
 dist/                     # Salida compilada del backend
 README.md
@@ -25,12 +25,14 @@ README.md
 ## API REST (backend)
 Base URL: `http://localhost:4000/api/v1/tasks`
 
-| Metodo | Ruta          | Descripcion                                      |
-| ------ | ------------- | ------------------------------------------------ |
-| POST   | `/`           | Crea una tarea (estado inicial `pending`)        |
-| GET    | `/`           | Lista todas las tareas                           |
-| GET    | `/:id`        | Obtiene una tarea especifica                     |
-| PATCH  | `/:id/status` | Actualiza el estado (`pending`,`in_progress`,`completed`) |
+| Metodo | Ruta          | Descripcion                                                   |
+| ------ | ------------- | ------------------------------------------------------------- |
+| POST   | `/`           | Crea una tarea (estado inicial `pending`)                     |
+| GET    | `/`           | Lista todas las tareas                                        |
+| GET    | `/:id`        | Obtiene una tarea especifica                                  |
+| PATCH  | `/:id`        | Edita titulo y/o descripcion de una tarea                     |
+| PATCH  | `/:id/status` | Cambia el estado (`pending`,`in_progress`,`completed`)        |
+| DELETE | `/:id`        | Elimina una tarea                                             |
 
 ### Ejemplo: crear tarea
 ```bash
@@ -44,6 +46,18 @@ curl -X POST http://localhost:4000/api/v1/tasks \
 curl -X PATCH http://localhost:4000/api/v1/tasks/1/status \
   -H "Content-Type: application/json" \
   -d '{"status":"in_progress"}'
+```
+
+### Ejemplo: editar titulo
+```bash
+curl -X PATCH http://localhost:4000/api/v1/tasks/1 \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Nuevo titulo","description":"Nuevo titulo"}'
+```
+
+### Ejemplo: eliminar tarea
+```bash
+curl -X DELETE http://localhost:4000/api/v1/tasks/1
 ```
 
 ## Puesta en marcha
@@ -66,10 +80,10 @@ La base SQLite se crea automaticamente en `data/<entorno>-trello.db`.
 > Asegurate de tener el backend corriendo para que la UI pueda consumir las APIs.
 
 ## Frontend en accion
-- Formulario para crear tareas nuevas y sumarlas a la columna Pendiente.
-- Columnas dinamicas agrupadas por estado, con indicadores de cantidad.
-- Select en cada tarjeta para mover el estado (llama al endpoint `PATCH /status`).
-- Banner de feedback para errores o acciones exitosas, y boton de refresco.
+- Cabecera con contadores en vivo de `N° Tareas` y `Pendientes`.
+- Formulario de una sola linea (“¿Qué hay que hacer?”) para registrar tareas rápidamente.
+- Lista interactiva con círculos de estado (pendiente/completada), texto editable y botones ✏️/🗑️.
+- Validaciones de entrada, feedback visual y confirmación antes de eliminar tareas.
 
 ## Futuras mejoras sugeridas
 1. Reemplazar `authPlaceholder` por autenticacion real (JWT/OAuth) y autorizacion basada en roles.

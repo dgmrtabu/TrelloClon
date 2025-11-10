@@ -39,4 +39,34 @@ export class TaskService {
 
     return task;
   }
+
+  async updateTaskDetails(id: number, updates: Partial<CreateTaskInput>): Promise<Task> {
+    const payload: Partial<CreateTaskInput> = {};
+
+    if (typeof updates.title === 'string') {
+      payload.title = updates.title.trim();
+    }
+
+    if (typeof updates.description === 'string') {
+      payload.description = updates.description.trim();
+    }
+
+    if (Object.keys(payload).length === 0) {
+      throw new AppError('No hay datos para actualizar', 400);
+    }
+
+    const task = await this.repository.updateTask(id, payload);
+    if (!task) {
+      throw new AppError('Tarea no encontrada', 404);
+    }
+
+    return task;
+  }
+
+  async deleteTask(id: number): Promise<void> {
+    const deleted = await this.repository.deleteTask(id);
+    if (!deleted) {
+      throw new AppError('Tarea no encontrada', 404);
+    }
+  }
 }
